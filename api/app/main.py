@@ -1,3 +1,6 @@
+import sys
+
+print("sys.path", sys.path)
 import logging
 from contextlib import asynccontextmanager
 
@@ -5,6 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.infrastructure.logging import setup_logging
+from app.infrastructure.storage.redis import get_redis
+from app.infrastructure.storage.postgres import get_postgres
 from app.interfaces.endpoints.routers import router
 from app.interfaces.errors.exception_handlers import register_exception_handlers
 from core.config import get_settings
@@ -34,12 +39,20 @@ async def lifespan(app: FastAPI):
     # 打印日志表示程序开始了
     logger.info("Manus 正在初始化")
 
-    # todo 内容
+    # 初始化 Redis 缓存客户端
+    redis = get_redis()
+    await redis.init()
+
+    # 初始化 Postgres 客户端
+    postgres = get_postgres()
+    await postgres.init()
 
     try:
         # lifespan 节点/分界
         yield
     finally:
+        await redis.shutdown()
+        await postgres.shutdown()
         logger.info("Manus 正在关闭")
 
 

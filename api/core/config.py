@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # 数据库相关配置
-    sqlalchemy_database_uri: str = ""
+    sqlalchemy_database_uri: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/manus"
 
     # Redis 缓存配置
     redis_host: str = "localhost"

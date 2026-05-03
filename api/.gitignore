@@ -13,3 +13,7 @@ wheels/
 # pycharm
 .idea/
 *.iml
+
+# DS_Store
+.DS_Store
+**/.DS_Store

@@ -1,6 +1,6 @@
 import logging
-
 from functools import lru_cache
+
 from redis.asyncio import Redis
 
 from core.config import get_settings, Settings
@@ -47,7 +47,7 @@ class RedisClient:
 
         # 客户端存在则关闭客户端并提示
         if self._client is not None:
-            await self._client.close()
+            await self._client.aclose()
             self._client = None
             logger.info("Redis 客户端成功关闭")
 
@@ -60,6 +60,7 @@ class RedisClient:
         if self._client is None:
             raise RuntimeError("Redis 客户端未初始化，获取客户端失败")
         return self._client
+
 
 @lru_cache()
 def get_redis() -> RedisClient:

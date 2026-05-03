@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """MoocManus 后端中控配置信息，从 .env 或者环境变量中加载数据"""
+    """Manus 后端中控配置信息，从 .env 或者环境变量中加载数据"""
 
     # 项目基础配置
     env: str = "development"
@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
     redis_password: str | None = None
+
+    # COS 腾讯云对象存储配置
+    cos_secret_id: str = ""
+    cos_secret_key: str = ""
+    cos_region: str = ""
+    cos_scheme: str = "https"
+    cos_bucket: str = ""
+    cos_domain: str = ""
 
     # 使用 pydantic V2 的写法来完成环境变量信息的告知
     model_config = SettingsConfigDict(

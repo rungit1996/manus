@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     # 项目基础配置
     env: str = "development"
     log_level: str = "INFO"
+    app_config_filepath: str = "config.yaml"
 
     # 数据库相关配置
     sqlalchemy_database_uri: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/manus"

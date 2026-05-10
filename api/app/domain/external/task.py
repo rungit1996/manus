@@ -26,11 +26,11 @@ class TaskRunner(ABC):
 class Task(Protocol):
     """定义任务相关的操作接口协议"""
 
-    async def run(self) -> None:
+    async def invoke(self) -> None:
         """运行当前任务"""
         ...
 
-    async def cancel(self) -> None:
+    def cancel(self) -> bool:
         """取消当前任务"""
         ...
 
@@ -65,6 +65,6 @@ class Task(Protocol):
         ...
 
     @classmethod
-    def destroy(cls) -> None:
+    async def destroy(cls) -> None:
         """销毁所有任务实例"""
         ...

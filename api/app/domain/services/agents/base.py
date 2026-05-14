@@ -16,7 +16,7 @@ from app.domain.services.tools.base import BaseTool
 logger = logging.getLogger(__name__)
 
 
-class Base(ABC):
+class BaseAgent(ABC):
     """基础 agent 智能体"""
     name: str = ""  # 智能体的名字
     _system_prompt: str = ""  # 系统预设的 prompt

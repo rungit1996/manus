@@ -1,6 +1,4 @@
-from typing import Protocol, List, Dict, Any, Literal
-
-from openai import Omit
+from typing import Protocol, List, Dict, Any
 
 
 class LLM(Protocol):
@@ -11,7 +9,8 @@ class LLM(Protocol):
             messages: List[Dict[str, Any]],
             tools: List[Dict[str, Any]] = None,
             response_format: Dict[str, Any] = None,
-            tool_choice: Literal["none", "auto", "required"] | Omit = Omit
+            # tool_choice: Literal["none", "auto", "required"] | Omit = Omit,
+            tool_choice: str = None,
     ) -> Dict[str, Any]:
         """传递消息列表、工具列表、响应格式、工具选择策略调用 LLM 接口"""
         ...

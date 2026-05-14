@@ -1,0 +1,216 @@
+import asyncio
+import logging
+import uuid
+from abc import ABC
+from typing import Optional, List, AsyncGenerator, Dict, Any
+
+from app.domain.external.json_parser import JSONParser
+from app.domain.external.llm import LLM
+from app.domain.models.app_config import AgentConfig
+from app.domain.models.event import Event, ToolEvent, ToolEventStatus, ErrorEvent
+from app.domain.models.memory import Memory
+from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool
+
+logger = logging.getLogger(__name__)
+
+
+class Base(ABC):
+    """基础 agent 智能体"""
+    name: str = ""  # 智能体的名字
+    _system_prompt: str = ""  # 系统预设的 prompt
+    _format: Optional[str] = None  # Agent 的响应格式
+    _retry_interval: float = 1.0  # 重试间隔
+    _tool_choice: Optional[str] = None  # 强制选择工具
+
+    def __init__(
+            self,
+            agent_config: AgentConfig,  # Agent 配置
+            llm: LLM,  # 语言模型协议
+            memory: Memory,  # 记忆
+            json_parser: JSONParser,  # JSON 输出解析器
+            tools: List[BaseTool]  # 工具列表
+    ) -> None:
+        """构造函数，完成 Agent 的初始化"""
+        self._agent_config = agent_config
+        self._llm = llm
+        self._memory = memory
+        self._json_parser = json_parser
+        self._tools = tools
+
+    @property
+    def memory(self) -> Memory:
+        """只读属性，返回记忆"""
+        return self._memory
+
+    def _get_available_tools(self) -> List[Dict[str, None]]:
+        """获取 Agent 所有可用的工具列表参数说明"""
+        available_tools = []
+        for tool in self._tools:
+            available_tools.extend(tool.get_tools())
+
+        return available_tools
+
+    def _get_tool(self, tool_name: str) -> BaseTool:
+        """获取对应工具所在的工具集/包"""
+        # 1. 循环遍历所有工具包
+        for tool in self._tools:
+            # 2. 判断工具包中是否存在该工具
+            if tool.has_tool(tool_name):
+                return tool
+
+        raise ValueError(f"未知工具：{tool_name}")
+
+    async def _invoke_tool(self, tool: BaseTool, tool_name: str, arguments: Dict[str, Any]) -> ToolResult:
+        """传递工具包+工具名字+对应参数调用指定工具"""
+        # 1. 执行循环调用工具获取结果
+        err = ""
+        for _ in range(self._agent_config.max_retries):
+            try:
+                return await tool.invoke(tool_name, **arguments)
+            except Exception as e:
+                err = str(e)
+                logger.exception(f"调用工具[{tool_name}]出错，错误：{str(e)}")
+                await asyncio.sleep(self._retry_interval)
+                continue
+
+        # 2. 循环最大重试次数后没有结果则将错误信息作为工具的执行结果，让 LLM 自行处理
+        return ToolResult(success=False, message=err)
+
+    async def _invoke_llm(self, messages: List[Dict[str, Any]], fmt: Optional[str] = None) -> Dict[str, Any]:
+        """调用语言模型并处理记忆内容"""
+        # 1. 将消息添加到记忆中
+        await self._add_to_memory(messages)
+
+        # 2. 组装语言模型的响应格式
+        response_format = {"type": fmt} if fmt else None
+
+        # 3. 循环向 LLM 发起提问，直到最大重试次数
+        for _ in range(self._agent_config.max_retries):
+            try:
+                # 4. 调用语言模型获取响应内容
+                message = await self._llm.invoke(
+                    messages=messages,
+                    tools=self._get_available_tools(),
+                    response_format=response_format,
+                    tool_choice=self._tool_choice
+                )
+
+                # 5. 处理 AI 响应内容避免空回复
+                if message.get("role") == "assistant":
+                    if not message.get("content") and not message.get("tool_calls"):
+                        logger.warning(f"LLM 回复了空内容，执行重试")
+                        await self._add_to_memory([
+                            {"role": "assistant", "content": ""},
+                            {"role": "user", "content": "AI 无响应内容，请继续。"}
+                        ])
+                        await asyncio.sleep(self._retry_interval)
+                        continue
+
+                    # 6. 取出非空消息并处理工具调用
+                    filtered_message = {"role": "assistant", "content": message.get("content")}
+                    if message.get("tool_calls"):
+                        # 7. 取出工具调用的数据，限制 LLM 一次只能调用一个工具
+                        filtered_message["tool_calls"] = message.get("tool_calls")[:1]
+                else:
+                    # 8. 非 AI 消息则记录日志并存储 message
+                    logger.warning(f"响应内容无法确认消息角色：{message.get('role')}")
+                    filtered_message = message
+
+                # 9. 将消息添加到记忆中
+                await self._add_to_memory([filtered_message])
+                return filtered_message
+
+            except Exception as e:
+                # 10. 记录日志并睡眠指定的时间
+                logger.error(f"调用语言模型发生错误：{str(e)}")
+                await asyncio.sleep(self._retry_interval)
+                continue
+
+    async def _add_to_memory(self, messages: List[Dict[str, Any]]) -> None:
+        """将对应消息添加到记忆中"""
+        # 1. 检查记忆的消息列表是否为空，如果是空则需要添加预设 prompt 作为初始记忆
+        if self._memory.empty:
+            self._memory.add_message({
+                "role": "system",
+                "content": self._system_prompt
+            })
+
+        # 2. 将正常消息添加到记忆中
+        self._memory.add_messages(messages)
+
+    async def compact_memory(self) -> None:
+        """压缩 Agent 的记忆"""
+        self._memory.compact()
+
+    # todo: Agent 的回滚 roll_back 还未实现
+
+    async def invoke(self, query: str, fmt: Optional[str] = None) -> AsyncGenerator[Event, None]:
+        """传递消息+响应格式调用程序生成异步迭代内容"""
+        # 1. 需要判断下是否传递了 format
+        # fmt = fmt or self._format
+        fmt = fmt if fmt else self._format
+
+        # 2. 调用语言模型获取响应内容
+        message = await self._invoke_llm(
+            [{"role": "user", "content": query}],
+            fmt
+        )
+
+        # 3. 循环遍历直到最大迭代次数
+        for _ in range(self._agent_config.max_iterations):
+            # 4. 如果响应内容无工具调用则表示 LLM 生成了文本回答，这时候就是最终答案
+            if not message.get("tool_calls"):
+                break
+
+            # 5. 循环遍历工具参数并执行
+            tool_messages = []
+            for tool_call in message["tool_calls"]:
+                if not tool_call.get("function"):
+                    continue
+
+                # 6. 取出调用工具 ID、名字、参数信息
+                tool_call_id = tool_call["id"] or str(uuid.uuid4())
+                function_name = tool_call["function"]["name"]
+                function_args = await self._json_parser.invoke(tool_call["function"]["arguments"])
+
+                # 7. 取出 Agent 中对应的工具
+                tool = self._get_tool(function_name)
+
+                # 8. 返回工具即将调用事件
+                # 其中 tool_content 比较特殊，需要在具体业务中进行实现
+                yield ToolEvent(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool.name,
+                    function_name=function_name,
+                    function_args=function_args,
+                    status=ToolEventStatus.CALLING,
+                )
+
+                # 9. 调用工具并获取结果
+                result = await self._invoke_tool(tool, function_name, function_args)
+
+                # 10. 返回工具调用结果
+                # 其中 tool_content 比较特殊，需要在具体业务中实现
+                yield ToolEvent(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool.name,
+                    function_name=function_name,
+                    function_args=function_args,
+                    function_result=result,
+                    status=ToolEventStatus.CALLED
+                )
+
+                # 11. 组装工具响应
+                tool_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "function_name": function_name,
+                    "content": result.model_dump()
+                })
+
+            # 12. 所有工具都执行完成后，调用 LLM 获取汇总消息二次提供
+            message = await self._invoke_llm(tool_messages)
+        else:
+            # 13. 超出最大迭代次数则抛出错误
+            yield ErrorEvent(error=f"Agent 迭代超过最大迭代次数：{self._agent_config.max_iterations}，任务处理失败")

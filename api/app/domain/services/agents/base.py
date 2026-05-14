@@ -9,6 +9,7 @@ from app.domain.external.llm import LLM
 from app.domain.models.app_config import AgentConfig
 from app.domain.models.event import Event, ToolEvent, ToolEventStatus, ErrorEvent
 from app.domain.models.memory import Memory
+from app.domain.models.message import Message
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool
 
@@ -143,7 +144,39 @@ class Base(ABC):
         """压缩 Agent 的记忆"""
         self._memory.compact()
 
-    # todo: Agent 的回滚 roll_back 还未实现
+    async def roll_back(self, message: Message) -> None:
+        """Agent 的状态回滚，用于确保 Agent 的消息列表状态是正确的，包括发送新消息、暂停/停止任务、通知用户"""
+        # 1. 取出记忆中的最后一条消息，检查是否是工具调用，也就是 AI 是否刚刚发起了工具调用
+        last_message = self._memory.get_last_message()
+        if (
+                not last_message or
+                not last_message.get("tool_calls") or
+                len(last_message.get("tool_calls")) == 0
+        ):
+            return
+
+        # 2. 取出消息中的工具调用参数
+        tool_call = last_message.get("tool_calls")[0]
+
+        # 3. 提取工具名字、ID
+        function_name = tool_call.get("function", {}).get("name")
+        tool_call_id = tool_call.get("id")
+
+        # 4. 判断下当前工具是不是通知用户（message_ask_user）
+        # 主动塞一条 role=tool 消息进记忆，强行补齐 LLM 工具调用的消息闭环
+        # 业内非常经典的虚拟工具占位写法
+        if function_name == "message_ask_user":
+            self._memory.add_message({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "function_name": function_name,
+                "content": message.model_dump_json(),
+            })
+        else:
+            # 5. 否则直接删除最后一条消息
+            # 把刚才的工具调用消息从记忆里删掉，当做没发生！
+            # 删除工具整条链路 → 暴力重置，只做异常兜底
+            self._memory.roll_back()
 
     async def invoke(self, query: str, fmt: Optional[str] = None) -> AsyncGenerator[Event, None]:
         """传递消息+响应格式调用程序生成异步迭代内容"""

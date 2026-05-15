@@ -2,7 +2,7 @@ import logging
 from typing import Optional, AsyncGenerator
 
 from .base import BaseAgent
-from ..prompts.planner import PLANNER_SYSTEM_PROMPT, CREATE_PLANNER_PROMPT, UPDATE_PLANNER_PROMPT
+from ..prompts.planner import PLANNER_SYSTEM_PROMPT, CREATE_PLAN_PROMPT, UPDATE_PLAN_PROMPT
 from ..prompts.system import SYSTEM_PROMPT
 from ...models.event import Event, MessageEvent, PlanEvent, PlanEventStatus
 from ...models.message import Message
@@ -41,7 +41,7 @@ class PlannerAgent(BaseAgent):
     async def create_plan(self, message: Message) -> AsyncGenerator[Event, None]:
         """根据用户传递的消息创建计划/规划，迭代返回对应的事件"""
         # 1. 根据用户传递的消息生成创建 plan 的提示词
-        query = CREATE_PLANNER_PROMPT.format(
+        query = CREATE_PLAN_PROMPT.format(
             message=message.message,
             attachments="\n".join(message.attachments),
         )
@@ -66,7 +66,7 @@ class PlannerAgent(BaseAgent):
     async def update_plan(self, plan: Plan, step: Step) -> AsyncGenerator[Event, None]:
         """根据传递的原始规划 + 子步骤更新事件"""
         # 1. 使用 plan+step 创建更新 Plan 提示词
-        query = UPDATE_PLANNER_PROMPT.format(
+        query = UPDATE_PLAN_PROMPT.format(
             plan=plan.model_dump_json(),
             step=step.model_dump_json(),
         )

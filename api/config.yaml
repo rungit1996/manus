@@ -9,4 +9,13 @@ agent_config:
   max_retries: 3
   max_search_results: 10
 mcp_config:
-  mcpServers: { }
+  mcpServers:
+    amap-maps-streamableHTTP:
+      transport: streamable_http
+      enabled: true
+      description: null
+      env: null
+      command: null
+      args: null
+      url: https://mcp.amap.com/mcp?key=00b05640cc55c0ba2b7f85e0b3f2e6e7
+      headers: null

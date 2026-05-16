@@ -8,3 +8,5 @@ agent_config:
   max_iterations: 100
   max_retries: 3
   max_search_results: 10
+mcp_config:
+  mcpServers: { }

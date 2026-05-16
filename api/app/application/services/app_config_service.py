@@ -1,6 +1,10 @@
+from typing import List
+
 from app.application.errors.exceptions import NotFoundError
 from app.domain.models.app_config import AppConfig, LLMConfig, AgentConfig, MCPConfig
 from app.domain.repositories.app_config_repositories import AppConfigRepository
+from app.domain.services.tools.mcp import MCPClientManager
+from app.interfaces.schemas.app_config import ListMCPServerItem
 
 
 class AppConfigService:
@@ -38,6 +42,36 @@ class AppConfigService:
         """获取 Agent 通用配置"""
         app_config = await self._load_app_config()
         return app_config.agent_config
+
+    async def get_mcp_servers(self) -> List[ListMCPServerItem]:
+        """获取 MCP 服务器列表"""
+        # 1. 获取当前应用配置
+        app_config = await self._load_app_config()
+
+        # 2. 创建 mcp 客户端管理，对配置信息不进行过滤
+        mcp_servers = []
+        mcp_client_manager = MCPClientManager(mcp_config=app_config.mcp_config)
+
+        try:
+            # 3. 初始化 mcp 客户端管理器
+            await mcp_client_manager.initialize()
+
+            # 4. 获取 mcp 客户端管理器的工具列表
+            tools = mcp_client_manager.tools
+
+            # 5. 循环组装响应的工具格式
+            for server_name, server_config in app_config.mcp_config.mcpServers.items():
+                mcp_servers.append(ListMCPServerItem(
+                    server_name=server_name,
+                    ennabled=server_config.enabled,
+                    transport=server_config.transport,
+                    tools=[tool.name for tool in tools.get(server_name, [])]
+                ))
+        finally:
+            # 清除 MCP 客户端管理器的相关资源
+            await mcp_client_manager.cleanup()
+
+        return mcp_servers
 
     async def update_agent_config(self, agent_config: AgentConfig) -> AgentConfig:
         """根据传递的 agent_config 更新 Agent 通用配置信息"""

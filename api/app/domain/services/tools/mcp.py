@@ -20,6 +20,7 @@ from typing import Optional, Dict, List, Any
 from mcp import ClientSession, Tool, StdioServerParameters, stdio_client
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
+from pydantic import BaseModel
 
 from app.application.errors.exceptions import NotFoundError
 from app.domain.models.app_config import MCPConfig, MCPServerConfig, MCPTransport
@@ -43,7 +44,7 @@ class MCPClientManager:
     def tools(self) -> Dict[str, List[Tool]]:
         """只读属性，返回缓存的 MCP 工具参数声明，键就是服务名字，值就是服务对应的工具声明"""
         return self._tools
-    
+
     async def initialize(self) -> None:
         """初始化函数，用于连接所有配置的 MCP 服务器"""
         # 1. 检查下是否已经初始化成功
@@ -314,3 +315,50 @@ class MCPClientManager:
             logger.info(f"清除 MCP 客户端管理器成功")
         except Exception as e:
             logger.error(f"清理 MCP 客户端管理器失败：{str(e)}")
+
+
+class MCPTool(BaseModel):
+    """MCP 工具包，包含所有已配置+已启动的 MCP 工具"""
+    name: str = "mcp"
+
+    def __init__(self):
+        """构造函数，完成 MCP 工具的初始化"""
+        super().__init__()
+        self._initialized: bool = False
+        self._tools = []
+        self._manager: MCPClientManager = None
+
+    async def initialize(self, mcp_config: Optional[MCPConfig] = None) -> None:
+        """初始化 MCP 工具包"""
+        # 1. 判断是否初始化，如果未初始化则进行初始化
+        if not self._initialized:
+            # 2. 初始化 MCP 客户端管理器
+            self._manager = MCPClientManager(mcp_config=mcp_config)
+            await self._manager.initialize()
+
+            # 3. 获取 mcpServers 工具列表
+            self._tools = await self._manager.get_all_tools()
+            self._initialized = True
+
+    def get_tools(self) -> List[Dict[str, Any]]:
+        """同步获取工具包下的所有工具列表"""
+        return self._tools
+
+    def has_tool(self, tool_name: str) -> bool:
+        """传递工具名字判断工具是否存在"""
+        # 1. 循环遍历所有的工具
+        for tool in self._tools:
+            # 2. 判断工具的名字是否存在
+            if tool["function"]["name"] == tool_name:
+                return True
+
+        return False
+
+    async def invoke(self, tool_name: str, **kwargs) -> ToolResult:
+        """传递工具名字+参数调用 MCP 工具并获取结果"""
+        return await self._manager.invoke(tool_name, kwargs)
+
+    async def cleanup(self) -> None:
+        """清除 MCP 工具资源"""
+        if self._manager:
+            await self._manager.cleanup()

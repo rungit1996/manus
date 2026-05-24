@@ -7,6 +7,7 @@ from playwright.async_api import Playwright, Page, Browser, async_playwright
 
 from app.domain.external.browser import Browser as BrowserProtocol
 from app.domain.external.llm import LLM
+from app.domain.models.tool_result import ToolResult
 from app.infrastructure.browser.playwright_browser_fun import GET_VISIBLE_CONTENT_FUNC, GET_INTERACTIVE_ELEMENTS_FUNC
 
 logger = logging.getLogger(__name__)
@@ -95,13 +96,13 @@ class PlaywrightBrowser(BrowserProtocol):
         await self._ensure_page()
 
         # 2. 清除当前页面上的缓存可交互元素列表
-        self.page.inneractive_element_cache = []
+        self.page.interactive_element_cache = []
 
         # 3. 执行 js 脚本获取可交互元素列表
         interactive_elements = await self.page.evaluate(GET_INTERACTIVE_ELEMENTS_FUNC)
 
         # 4. 更新缓存的可交互元素列表
-        self.page.inneractive_element_cache = interactive_elements
+        self.page.interactive_element_cache = interactive_elements
 
         # 5. 格式化可交互元素为字符串
         formatted_elements = []
@@ -218,3 +219,48 @@ class PlaywrightBrowser(BrowserProtocol):
             await asyncio.sleep(check_interval)
 
         return False
+
+    async def navigate(self, url: str) -> ToolResult:
+        """根据传递的 url 跳转到指定页面"""
+        # 1. 确保页面存在
+        await self._ensure_page()
+
+        try:
+            # 2. 在跳转之前先将可交互元素的缓存清空
+            self.page.interactive_element_cache = []
+
+            # 3. 使用 goto 进行跳转
+            await self.page.goto(url)
+
+            return ToolResult(
+                success=True,
+                data={"interactive_elements": await self._extract_interactive_elements()}
+            )
+        except Exception as e:
+            # 返回错误的工具结果
+            return ToolResult(success=False, message=f"浏览器导航到[{url}]失败：{str(e)}")
+
+    async def view_page(self) -> ToolResult:
+        """获取当前网页的内容（内容+可交互元素）"""
+        # 1. 确保页面存在
+        await self._ensure_page()
+
+        # 2. 等待页面加载完成
+        await self.wait_for_page_load()
+
+        # 3. 更新页面的可交互元素
+        interactive_elements = await self._extract_interactive_elements()
+
+        # 4. 返回工具结果
+        return ToolResult(
+            success=True,
+            data={
+                "content": await self._extract_content(),
+                "interactive_elements": interactive_elements,
+            }
+        )
+
+    async def restart(self, url: str) -> ToolResult:
+        """重启并跳转到指定 url"""
+        await self.cleanup()
+        return await self.navigate(url)

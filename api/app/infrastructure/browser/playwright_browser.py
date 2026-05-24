@@ -8,7 +8,8 @@ from playwright.async_api import Playwright, Page, Browser, async_playwright
 from app.domain.external.browser import Browser as BrowserProtocol
 from app.domain.external.llm import LLM
 from app.domain.models.tool_result import ToolResult
-from app.infrastructure.browser.playwright_browser_fun import GET_VISIBLE_CONTENT_FUNC, GET_INTERACTIVE_ELEMENTS_FUNC
+from app.infrastructure.browser.playwright_browser_fun import GET_VISIBLE_CONTENT_FUNC, GET_INTERACTIVE_ELEMENTS_FUNC, \
+    INJECT_CONSOLE_LOGS_FUNC
 
 logger = logging.getLogger(__name__)
 
@@ -349,17 +350,18 @@ class PlaywrightBrowser(BrowserProtocol):
                 element = await self._get_element_by_id(index)
                 if not element:
                     return ToolResult(success=False, message="输入文本失败，对应元素不存在")
-
                 try:
                     # 5. 先清空原始输出框中的内容然后再填充
                     await element.fill("")
                     await element.type(text)
                 except Exception as e:
-                    return ToolResult(success=False, message=f"输入文本失败：{str(e)}")
+                    # 6. 如果填充失败则尝试点击后输入文本，而不是直接清空
+                    await element.click()
+                    await element.type(text)
             except Exception as e:
                 return ToolResult(success=False, message=f"输入文本失败：{str(e)}")
 
-        # 6. 判断是否按 Enter 键
+        # 7. 判断是否按 Enter 键
         if press_enter:
             await self.page.keyboard.press("Enter")
 
@@ -442,8 +444,18 @@ class PlaywrightBrowser(BrowserProtocol):
 
     async def console_exec(self, javascript: str) -> ToolResult:
         """传递 js 代码在当前页面控制台执行"""
+        # 1. 确保页面存在
         await self._ensure_page()
+
+        # 2. 在正式开始执行代码之前先注入 logs
+        try:
+            await self.page.evaluate(INJECT_CONSOLE_LOGS_FUNC)
+        except Exception as e:
+            logger.warning(f"注入 window.console.logs 失败：{str(e)}")
+
+        # 3. 正式执行 js 脚本
         result = await self.page.evaluate(javascript)
+
         return ToolResult(success=True, data={"result": result})
 
     async def console_view(self, max_lines: Optional[int] = None) -> ToolResult:

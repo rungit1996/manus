@@ -1,13 +1,13 @@
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, List
 
 from markdownify import markdownify
 from playwright.async_api import Playwright, Page, Browser, async_playwright
 
 from app.domain.external.browser import Browser as BrowserProtocol
 from app.domain.external.llm import LLM
-from app.infrastructure.browser.playwright_browser_fun import GET_VISIBLE_CONTENT_FUNC
+from app.infrastructure.browser.playwright_browser_fun import GET_VISIBLE_CONTENT_FUNC, GET_INTERACTIVE_ELEMENTS_FUNC
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,27 @@ class PlaywrightBrowser(BrowserProtocol):
             return response.get("content", "")
         else:
             return markdown_content[:max_content_length]
+
+    async def _extract_interactive_elements(self) -> List[str]:
+        """提取当前页面上的可交互元素"""
+        # 1. 确保页面存在
+        await self._ensure_page()
+
+        # 2. 清除当前页面上的缓存可交互元素列表
+        self.page.inneractive_element_cache = []
+
+        # 3. 执行 js 脚本获取可交互元素列表
+        interactive_elements = await self.page.evaluate(GET_INTERACTIVE_ELEMENTS_FUNC)
+
+        # 4. 更新缓存的可交互元素列表
+        self.page.inneractive_element_cache = interactive_elements
+
+        # 5. 格式化可交互元素为字符串
+        formatted_elements = []
+        for element in interactive_elements:
+            formatted_elements.append(f"{element['index']}:<{element['tag']}>{element['text']}</{element['tag']}>")
+
+        return formatted_elements
 
     async def initialize(self) -> bool:
         """初始化并确保资源是可用的"""

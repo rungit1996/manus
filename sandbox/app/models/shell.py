@@ -38,8 +38,20 @@ class ShellViewResult(BaseModel):
 
 class ShellExecResult(BaseModel):
     """Shell 命令执行结果"""
-    session_id: str = Field(..., description="Shell 会话 ID")
+    session_id: str = Field(..., description="Shell 会话 id")
     command: str = Field(..., description="执行命令")
     status: str = Field(..., description="命令执行状态")
     returncode: Optional[int] = Field(default=None, description="进程返回代码，只有进程结束时才有值")
     output: Optional[str] = Field(default=None, description="进程执行结果，只有进程结束时才有值")
+
+
+class ViewShellRequest(BaseModel):
+    """查看 Shell 执行内容请求结构体"""
+    session_id: str = Field(..., description="Shell 会话 id")
+    console: Optional[bool] = Field(default=None, description="是否返回控制台记录列表")
+
+
+class WaitForProcessRequest(BaseModel):
+    """等待 Shell 命令执行请求结构体"""
+    session_id: str = Field(..., description="Shell 会话 id")
+    seconds: Optional[int] = Field(default=None, description="等待时间，单位为秒")

@@ -2,10 +2,11 @@ import os.path
 
 from fastapi import APIRouter, Depends
 
+from app.interfaces.errors.exceptions import BadRequestException
 from app.interfaces.schemas.base import Response
 from app.interfaces.schemas.shell import ExecCommandRequest
 from app.interfaces.service_dependencies import get_shell_service
-from app.models.shell import ShellExecResult
+from app.models.shell import ShellExecResult, ShellViewResult, ViewShellRequest, ShellWaitResult, WaitForProcessRequest
 from app.services.shell import ShellService
 
 router = APIRouter(prefix="/shell", tags=["Shell模块"])
@@ -36,3 +37,39 @@ async def exec_command(
     )
 
     return Response.success(data=result)
+
+
+@router.post(
+    path="/view-shell",
+    response_model=Response[ShellViewResult],
+)
+async def view_shell(
+        request: ViewShellRequest,
+        shell_service: ShellService = Depends(get_shell_service),
+) -> Response[ShellViewResult]:
+    """根据传递的会话id+是否返回控制台标识获取 Shell 命令执行结果"""
+    # 1. 判断下 Shell 会话 id 是否存在
+    if not request.session_id or request.session_id == "":
+        raise BadRequestException("Shell 会话 id 为空，请核实后重试")
+
+    # 2. 调用服务获取命令执行结果
+    result = await shell_service.view_shell(request.session_id, request.console)
+
+    return Response.success(data=result)
+
+
+@router.post(
+    path="/wait-for-process",
+    response_model=Response[ShellWaitResult]
+)
+async def wait_for_process(
+        request: WaitForProcessRequest,
+        shell_service: ShellService = Depends(get_shell_service),
+) -> Response[ShellWaitResult]:
+    """传递会话id+描述执行等待并获取等待结果"""
+    result = await shell_service.wait_for_process(request.session_id, request.seconds)
+
+    return Response.success(
+        msg=f"进程结束，返回状态码（returncode）：{result.returncode}",
+        data=result,
+    )

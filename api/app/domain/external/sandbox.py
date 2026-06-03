@@ -50,6 +50,7 @@ class Sandbox(Protocol):
             start_line: Optional[int] = None,
             end_line: Optional[int] = None,
             sudo: bool = False,
+            max_length: int = 10000,
     ) -> ToolResult:
         """根据传递的文件路径+起点终点行数+超级权限读取对应文件内容"""
         ...
@@ -85,7 +86,7 @@ class Sandbox(Protocol):
         """根据传递的文件路径+正则+超级权限完成文件内容检索"""
         ...
 
-    async def fine_find(self, dir_path: str, glob_pattern: str) -> ToolResult:
+    async def file_find(self, dir_path: str, glob_pattern: str) -> ToolResult:
         """根据传递的文件夹路径+匹配规则查找文件"""
         ...
 

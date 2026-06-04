@@ -1,10 +1,15 @@
 import asyncio
+import glob
 import logging
 import os.path
+import re
 from typing import Optional
 
+from fastapi import UploadFile
+
 from app.interfaces.errors.exceptions import NotFoundException, BadRequestException, AppException
-from app.models.file import FileReadResult, FileWriteResult
+from app.models.file import FileReadResult, FileWriteResult, FileReplaceResult, FileSearchResult, FileFindResult, \
+    FileUploadResult, FileCheckResult, FileDeleteResult
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +27,7 @@ class FileService:
             start_line: Optional[int] = None,
             end_line: Optional[int] = None,
             sudo: bool = False,
-            max_length: int = 100000,
+            max_length: Optional[int] = 100000,
     ) -> FileReadResult:
         """根据传递的文件路径+起始行号+权限+最大长度读取文件内容"""
         try:
@@ -164,3 +169,147 @@ class FileService:
             if isinstance(e, BadRequestException):
                 raise
             raise AppException(f"文件内容写入失败：{str(e)}")
+
+    async def replace_in_file(
+            self,
+            filepath: str,
+            old_str: str,
+            new_str: str,
+            sudo: bool = False
+    ) -> FileReplaceResult:
+        """根据传递的数据替换文件内指定的内容"""
+        # 1. 调用服务获取对应的服务内容
+        file_read_result = await self.read_file(filepath=filepath, sudo=sudo, max_length=None)
+        content = file_read_result.content
+
+        # 2. 计算 old_str 出现的次数，只要次数大于 0 才需要替换
+        replaced_count = content.count(old_str)
+        if replaced_count == 0:
+            return FileReplaceResult(filepath=filepath, replaced_count=replaced_count)
+
+        # 3. 替换掉旧内容
+        new_content = content.replace(old_str, new_str)
+
+        # 4. 将替换后的新内容写入到文件中
+        await self.write_file(
+            filepath=filepath,
+            content=new_content,
+            sudo=sudo,
+        )
+
+        return FileReplaceResult(filepath=filepath, replaced_count=replaced_count)
+
+    async def search_in_file(self, filepath: str, regex: str, sudo: bool = False) -> FileSearchResult:
+        """根据传递的文件路径+匹配规则，查询文件内符合的内容"""
+        # 1. 调用服务获取对应的服务内容
+        file_read_result = await self.read_file(filepath=filepath, sudo=sudo, max_length=None)
+        content = file_read_result.content
+
+        # 2. 将读取的内容拆分成每一行
+        lines = content.splitlines()
+        matches = []
+        line_numbers = []
+
+        # 3. 将外部传递的 regex 转换正则
+        try:
+            pattern = re.compile(regex)
+        except Exception as e:
+            raise BadRequestException(f"传递正则表达式【{regex}】出错：{str(e)}")
+
+        # 4. 创建一个异步函数，使用子线程方式执行避免长时间 io 阻塞
+        def async_matches():
+            nonlocal matches, line_numbers
+            for idx, line in enumerate(lines):
+                if pattern.match(line):
+                    matches.append(line)
+                    line_numbers.append(idx)
+
+        # 5. 使用 asyncio 创建子线程并调用
+        await asyncio.to_thread(async_matches)
+
+        return FileSearchResult(
+            filepath=filepath,
+            matches=matches,
+            line_numbers=line_numbers,
+        )
+
+    @classmethod
+    async def find_files(cls, dir_path: str, glob_pattern: str) -> FileFindResult:
+        """根据传递的文件夹路径和+glob 规则查找文件列表"""
+        # 1. 检测下传递进来的目录是否存在
+        if not os.path.isdir(dir_path):
+            raise NotFoundException(f"目录不存在或不是文件夹：{dir_path}")
+
+        # 2. 定义一个异步函数使用 asyncio 子线程运行避免 io 阻塞
+        def async_glob():
+            search_pattern = os.path.join(dir_path, glob_pattern)
+            return glob.glob(search_pattern, recursive=True)
+
+        # 3. 创建子线程完成任务
+        files = await asyncio.to_thread(async_glob)
+
+        return FileFindResult(
+            dir_path=dir_path,
+            files=files,
+        )
+
+    @classmethod
+    async def upload_file(cls, file: UploadFile, filepath: str) -> FileUploadResult:
+        """根据传递的文件源+路径将文件上传至沙箱"""
+        try:
+            # 1. 定义分块上传，每次只上传 8k
+            chunk_size = 1024 * 8
+            file_size = 0
+
+            # 2. 确保上传文件所在的目录存在
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+            # 3. 定义一个异步函数用于上传文避免阻塞进程
+            def async_write_file():
+                nonlocal file_size
+                with open(filepath, "wb") as f:
+                    while True:
+                        chunk = file.file.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        file_size += len(chunk)
+
+            # 4. 使用 asyncio 子线程完成函数调用
+            await asyncio.to_thread(async_write_file)
+
+            return FileUploadResult(
+                filepath=filepath,
+                file_size=file_size,
+                success=True,
+            )
+        except Exception as e:
+            logger.error(f"上传文件到沙箱出错：{str(e)}")
+            raise AppException(f"上传文件到沙箱出错：{str(e)}")
+
+    @classmethod
+    async def ensure_file(cls, filepath: str) -> None:
+        """传递 filepath 用于确保当前文件存在"""
+        if not os.path.exists(filepath):
+            raise NotFoundException(f"该文件不存在：{filepath}")
+
+    @classmethod
+    async def check_file_exists(cls, filepath: str) -> FileCheckResult:
+        """根据传递的路径判断文件是否存在"""
+        return FileCheckResult(
+            filepath=filepath,
+            exists=os.path.exists(filepath),
+        )
+
+    async def delete_file(self, filepath: str) -> FileDeleteResult:
+        """根据指定的路径+sudo删除指定文件"""
+        # 1. 判断文件是否存在
+        await self.ensure_file(filepath)
+
+        try:
+            # 2. 调用命令删除文件
+            os.remove(filepath)
+            return FileDeleteResult(filepath=filepath, deleted=True)
+        except Exception as e:
+            logger.error(f"删除 {filepath} 文件失败：{str(e)}")
+            raise AppException(f"删除 {filepath} 文件失败：{str(e)}")

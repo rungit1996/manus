@@ -1,8 +1,6 @@
 import asyncio
-import locale
 import logging
 import os.path
-import sys
 from typing import Optional
 
 from app.interfaces.errors.exceptions import NotFoundException, BadRequestException, AppException
@@ -13,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 class FileService:
     """文件沙箱服务"""
+
+    def __init__(self) -> None:
+        pass
 
     @classmethod
     async def read_file(
@@ -30,11 +31,11 @@ class FileService:
                 logger.error(f"要读取的文件不存在或无权限：{filepath}")
                 raise NotFoundException(f"要读取的文件不存在或无权限：{filepath}")
 
-            # 2. 获取系统编码
-            encoding = locale.getpreferredencoding() if sys.platform == "win32" else "utf-8"
+            # 2. ubuntu 系统下统一设置为 utf-8 编码
+            encoding = "utf-8"
 
-            # 3. 判断是否为 sudo + 非 win 系统，如果是则使用命令行的方式读取文件
-            if sudo and sys.platform != "win32":
+            # 3. 判断是否为 sudo，如果是则使用命令行的方式读取文件
+            if sudo:
                 # 4. 使用 sudo cat 命令读取文件内容
                 command = f"sudo cat {filepath}"
                 process = await asyncio.create_subprocess_shell(
@@ -58,8 +59,8 @@ class FileService:
                     try:
                         with open(filepath, "r", encoding=encoding) as f:
                             return f.read()
-                    except Exception as e:
-                        raise AppException(msg=f"读取文件失败：{str(e)}")
+                    except Exception as async_read_file_exception:
+                        raise AppException(msg=f"读取文件失败：{str(async_read_file_exception)}")
 
                 # 9. 使用 asyncio 创建线程读取文件
                 content = await asyncio.to_thread(async_read_file)
@@ -105,8 +106,8 @@ class FileService:
             if trailing_newline:
                 content = content + "\n"
 
-            # 2. 判断是否是 sudo 权限，并且不是 Windows 系统
-            if sudo and sys.platform != "win32":
+            # 2. 判断是否是 sudo 权限，如果是则使用命令行的形式先写入一个缓存文件，然后将缓存文件覆原始文件
+            if sudo:
                 # 3, 使用命令的方式先向临时文件写入数据，计算追加模式
                 mode = ">>" if append else ">"
 
@@ -140,7 +141,7 @@ class FileService:
                 # 10. 清除临时文件
                 os.unlink(temp_file)
             else:
-                # 11. 非 sudo 或者 Windows 下使用 Python 的方式写入
+                # 11. 非 sudo 下使用 Python 的方式写入
                 os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
                 # 12. 创建一个异步写入的函数
@@ -163,4 +164,3 @@ class FileService:
             if isinstance(e, BadRequestException):
                 raise
             raise AppException(f"文件内容写入失败：{str(e)}")
-        pass

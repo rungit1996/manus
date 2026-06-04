@@ -1,13 +1,10 @@
 import asyncio
 import codecs
 import getpass
-import locale
 import logging
 import os.path
 import re
-import shutil
 import socket
-import sys
 import uuid
 from typing import Dict, Optional, List
 
@@ -21,10 +18,13 @@ logger = logging.getLogger(__name__)
 class ShellService:
     """Shell 命令服务"""
 
-    active_shells: Dict[str, Shell] = {}
+    active_shells: Dict[str, Shell]
+
+    def __init__(self) -> None:
+        self.active_shells = {}
 
     @classmethod
-    def _get_display_path(self, path: str) -> str:
+    def _get_display_path(cls, path: str) -> str:
         """获取显示路径，将～替换成用户主目录"""
         # 1. 使用程序获取跨平台下用户的主目录
         home_dir = os.path.expanduser("~")
@@ -38,21 +38,11 @@ class ShellService:
     @classmethod
     async def _create_process(cls, exec_dir: str, command: str) -> asyncio.subprocess.Process:
         """根据传递的执行目录+命令创建一个 asyncio 管理的子进程"""
-        # 1. 根据不同的系统选择不同的解释器
+        # 1. ubuntu 系统统一使用 "/bin/bash" 这个解释器
         logger.debug(f"在目录 {exec_dir} 下使用命令 {command} 创建一个子进程")
-        shell_exec = None
-        if sys.platform != "win32":
-            if os.path.exists("/bin/bash"):
-                shell_exec = "/bin/bash"
-            elif os.path.exists("/bin/zsh"):
-                shell_exec = "/bin/zsh"
-        elif sys.platform == "win32":
-            # 2. 优先查找powershell 是否存在
-            shell_exec = shutil.which("powershell")
-            if not shell_exec:
-                shell_exec = shutil.which("cmd")
+        shell_exec = "/bin/bash"
 
-        # 3. 创建一个系统级的子进程用来执行 shell 命令
+        # 2. 创建一个系统级的子进程用来执行 shell 命令
         return await asyncio.create_subprocess_shell(
             command,  # 要执行的命令
             executable=shell_exec,  # 执行解释器
@@ -65,12 +55,9 @@ class ShellService:
 
     async def _start_output_reader(self, session_id: str, process: asyncio.subprocess.Process) -> None:
         """启动协程以连续读取进程输出并将其存储到会话中"""
-        # 1. 动态确定系统编码
+        # 1. ubuntu 系统编码统一设置 utf-8
         logger.debug(f"正在启用会话输出读取器：{session_id}")
-        if sys.platform == "win32":
-            encoding = "gb18030"  # 支持的的生僻字比 gbk 更多，且兼容 gbk
-        else:
-            encoding = "utf-8"
+        encoding = "utf-8"
 
         # 2. 创建一个增量编码器（解决字符被切断的问题）
         decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
@@ -229,7 +216,7 @@ class ShellService:
                 )
 
                 # 5. 创建后台任务来运行输出读取器
-                asyncio.create_task(self._start_output_reader(session_id, process))
+                await asyncio.create_task(self._start_output_reader(session_id, process))
             else:
                 # 6. Shell 会话已存在，则读取数据
                 logger.debug(f"使用现用的 Shell 会话：{session_id}")
@@ -258,7 +245,7 @@ class ShellService:
                 shell.console_records.append(ConsoleRecord(ps1=ps1, command=command, output=""))
 
                 # 12. 创建后台任务来运行输出读取器
-                asyncio.create_task(self._start_output_reader(session_id, process))
+                await asyncio.create_task(self._start_output_reader(session_id, process))
 
             try:
                 # 13. 尝试等待子进程执行（最多等待5s）
@@ -318,13 +305,9 @@ class ShellService:
                 logger.error(f"子进程已结束，无法写入输入：{session_id}")
                 raise BadRequestException("子进程已结束，无法写入输入")
 
-            # 4. 确认系统编码
-            if sys.platform == "win32":
-                encoding = locale.getpreferredencoding()
-                line_ending = "\r\n"
-            else:
-                encoding = "utf-8"
-                line_ending = "\n"
+            # 4. ubuntu 系统统一设置 utf-8 和 \n
+            encoding = "utf-8"
+            line_ending = "\n"
 
             # 5. 准备要发送的内容
             text_to_send = input_text

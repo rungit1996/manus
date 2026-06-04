@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends
 
 from app.interfaces.errors.exceptions import BadRequestException
 from app.interfaces.schemas.base import Response
-from app.interfaces.schemas.shell import ExecCommandRequest, WaitForProcessRequest, ViewShellRequest, \
-    WriteToProcessRequest, KillProcessRequest
+from app.interfaces.schemas.shell import ShellExecuteRequest, ShellReadRequest, ShellWriteRequest, ShellKillRequest, \
+    ShellWaitRequest
 from app.interfaces.service_dependencies import get_shell_service
-from app.models.shell import ShellExecResult, ShellViewResult, ShellWaitResult, ShellWriteResult, ShellKillResult
+from app.models.shell import ShellWaitResult, ShellWriteResult, ShellKillResult, ShellExecuteResult, ShellReadResult
 from app.services.shell import ShellService
 
 router = APIRouter(prefix="/shell", tags=["Shell模块"])
@@ -15,12 +15,12 @@ router = APIRouter(prefix="/shell", tags=["Shell模块"])
 
 @router.post(
     path="/exec-command",
-    response_model=Response[ShellExecResult],
+    response_model=Response[ShellExecuteResult],
 )
 async def exec_command(
-        request: ExecCommandRequest,
+        request: ShellExecuteRequest,
         shell_service: ShellService = Depends(get_shell_service),
-) -> Response[ShellExecResult]:
+) -> Response[ShellExecuteResult]:
     """在指定的 Shell 会话中运行命令"""
     # 1. 判断下是否传递了 session_id，如果不存在则新建一个 session_id
     if not request.session_id or request.session_id == "":
@@ -41,30 +41,30 @@ async def exec_command(
 
 
 @router.post(
-    path="/view-shell",
-    response_model=Response[ShellViewResult],
+    path="/read-shell-output",
+    response_model=Response[ShellReadResult],
 )
-async def view_shell(
-        request: ViewShellRequest,
+async def read_shell_output(
+        request: ShellReadRequest,
         shell_service: ShellService = Depends(get_shell_service),
-) -> Response[ShellViewResult]:
+) -> Response[ShellReadResult]:
     """根据传递的会话id+是否返回控制台标识获取 Shell 命令执行结果"""
     # 1. 判断下 Shell 会话 id 是否存在
     if not request.session_id or request.session_id == "":
         raise BadRequestException("Shell 会话 id 为空，请核实后重试")
 
     # 2. 调用服务获取命令执行结果
-    result = await shell_service.view_shell(request.session_id, request.console)
+    result = await shell_service.read_shell_output(request.session_id, request.console)
 
     return Response.success(data=result)
 
 
 @router.post(
-    path="/wait-for-process",
+    path="/wait-process",
     response_model=Response[ShellWaitResult]
 )
-async def wait_for_process(
-        request: WaitForProcessRequest,
+async def wait_process(
+        request: ShellWaitRequest,
         shell_service: ShellService = Depends(get_shell_service),
 ) -> Response[ShellWaitResult]:
     """传递会话id+描述执行等待并获取等待结果"""
@@ -73,7 +73,7 @@ async def wait_for_process(
         raise BadRequestException("Shell 会话 ID 为空，请核实后重试")
 
     # 2. 调用服务等待子进程
-    result = await shell_service.wait_for_process(request.session_id, request.seconds)
+    result = await shell_service.wait_process(request.session_id, request.seconds)
 
     return Response.success(
         msg=f"进程结束，返回状态码（returncode）：{result.returncode}",
@@ -82,11 +82,11 @@ async def wait_for_process(
 
 
 @router.post(
-    path="/write-to-process",
+    path="/write-shell-input",
     response_model=Response[ShellWriteResult],
 )
-async def write_to_process(
-        request: WriteToProcessRequest,
+async def write_shell_input(
+        request: ShellWriteRequest,
         shell_service: ShellService = Depends(get_shell_service)
 ) -> Response[ShellWriteResult]:
     """根据传递的会话+写入内容+按下回车标识向指定子进程写入数据"""
@@ -95,7 +95,7 @@ async def write_to_process(
         raise BadRequestException("Shell 会话 ID 为空，请核实后重试")
 
     # 2. 调用服务向子进程写入数据
-    result = await shell_service.write_to_process(
+    result = await shell_service.write_shell_input(
         session_id=request.session_id,
         input_text=request.input_text,
         press_enter=request.press_enter,
@@ -112,7 +112,7 @@ async def write_to_process(
     response_model=Response[ShellKillResult]
 )
 async def kill_process(
-        request: KillProcessRequest,
+        request: ShellKillRequest,
         shell_service: ShellService = Depends(get_shell_service),
 ) -> Response[ShellKillResult]:
     """传递 Shell 会话 id 关闭指定会话"""

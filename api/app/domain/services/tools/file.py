@@ -17,7 +17,7 @@ class FileTool(BaseModel):
         self.sandbox = sandbox
 
     @tool(
-        name="file_read",
+        name="read_file",
         description="读取文件内容。用于检查文件内容、分析日志或读取配置文件。",
         parameters={
             "filepath": {
@@ -43,7 +43,7 @@ class FileTool(BaseModel):
         },
         required=["filepath"],
     )
-    async def file_read(
+    async def read_file(
             self,
             filepath: str,
             start_line: Optional[int] = None,
@@ -52,7 +52,7 @@ class FileTool(BaseModel):
             max_length: int = 10000,
     ) -> ToolResult:
         """传递文件路径读取沙箱中的文件内容"""
-        return await self.sandbox.file_read(
+        return await self.sandbox.read_file(
             filepath=filepath,
             start_line=start_line,
             end_line=end_line,
@@ -61,7 +61,7 @@ class FileTool(BaseModel):
         )
 
     @tool(
-        name="file_write",
+        name="write_file",
         description="对文件进行覆盖或追加写入。用于创建新文件、追加内容或修改现有文件。",
         parameters={
             "filepath": {
@@ -91,7 +91,7 @@ class FileTool(BaseModel):
         },
         required=["filepath", "content"],
     )
-    async def file_write(
+    async def write_file(
             self,
             filepath: str,
             content: str,
@@ -101,7 +101,7 @@ class FileTool(BaseModel):
             sudo: Optional[bool] = False,
     ) -> ToolResult:
         """传递文件路径和内容，对文件进行覆盖或追加写入"""
-        return await self.sandbox.file_write(
+        return await self.sandbox.write_file(
             filepath=filepath,
             content=content,
             append=append,
@@ -111,7 +111,7 @@ class FileTool(BaseModel):
         )
 
     @tool(
-        name="file_str_replace",
+        name="replace_in_file",
         description="在文件中替换指定的字符串，用于更新文件中的特定内容或修复代码中的错误。",
         parameters={
             "filepath": {
@@ -133,7 +133,7 @@ class FileTool(BaseModel):
         },
         required=["filepath", "old_str", "new_str"]
     )
-    async def file_str_replace(
+    async def replace_in_file(
             self,
             filepath: str,
             old_str: str,
@@ -141,7 +141,7 @@ class FileTool(BaseModel):
             sudo: Optional[bool] = False,
     ) -> ToolResult:
         """传入文件绝对路径和新旧字符串，用于在文件中替换指定的字符串"""
-        return await self.sandbox.file_replace(
+        return await self.sandbox.replace_in_file(
             filepath=filepath,
             old_str=old_str,
             new_str=new_str,
@@ -149,7 +149,7 @@ class FileTool(BaseModel):
         )
 
     @tool(
-        name="file_find_in_content",
+        name="search_in_file",
         description="在文件内容中搜索匹配的文本，用于查找文件中的特定内容或模式。",
         parameters={
             "filepath": {
@@ -167,21 +167,21 @@ class FileTool(BaseModel):
         },
         required=["filepath", "regex"]
     )
-    async def file_find_in_content(
+    async def search_in_file(
             self,
             filepath: str,
             regex: str,
             sudo: Optional[bool] = False,
     ) -> ToolResult:
         """传入文件的绝对路径和正则表达式，在文件内容中搜索匹配的文本"""
-        return await self.sandbox.file_search(
+        return await self.sandbox.search_in_file(
             filepath=filepath,
             regex=regex,
             sudo=sudo,
         )
 
     @tool(
-        name="file_find_by_name",
+        name="find_files",
         description="在指定目录中根据名称模式查找文件，用于定位具有特定命名模式的文件。",
         parameters={
             "dir_path": {
@@ -195,19 +195,19 @@ class FileTool(BaseModel):
         },
         required=["dir_path", "glob_pattern"]
     )
-    async def file_find_by_name(
+    async def find_files(
             self,
             dir_path: str,
             glob_pattern: str,
     ) -> ToolResult:
         """传递目录的绝对路径和通配符，在指定目录中根据名称模式查找文件"""
-        return await self.sandbox.file_find(
+        return await self.sandbox.find_files(
             dir_path=dir_path,
             glob_pattern=glob_pattern,
         )
 
     @tool(
-        name="file_list",
+        name="list_files",
         description="列出指定目录下的文件列表信息",
         parameters={
             "dir_path": {
@@ -217,6 +217,6 @@ class FileTool(BaseModel):
         },
         required=["dir_path"]
     )
-    async def file_list(self, dir_path: str) -> ToolResult:
+    async def list_files(self, dir_path: str) -> ToolResult:
         """传入目录的绝对路径，列出该目录下的文件列表信息"""
-        return await self.sandbox.file_list(dir_path)
+        return await self.sandbox.list_files(dir_path)

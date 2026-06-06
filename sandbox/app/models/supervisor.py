@@ -1,3 +1,5 @@
+from typing import Optional, Any
+
 from pydantic import BaseModel, Field
 
 
@@ -17,3 +19,12 @@ class ProcessInfo(BaseModel):
     stdout_logfile: str = Field(..., description="标准输出日志文件")
     stderr_logfile: str = Field(..., description="标准错误日志文件")
     pid: int = Field(..., description="进程id（Process ID）")
+
+
+class SupervisorActionResult(BaseModel):
+    """Supervisor 动作/执行结果"""
+    status: str = Field(..., description="执行状态")
+    result: Optional[Any] = Field(default=None, description="执行结果")
+    stop_result: Optional[Any] = Field(default=None, description="停止结果")
+    start_result: Optional[Any] = Field(default=None, description="开始结果")
+    shutdown_result: Optional[Any] = Field(default=None, description="关机结果")

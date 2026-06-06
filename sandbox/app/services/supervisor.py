@@ -12,7 +12,7 @@ import xmlrpc.client
 from typing import List, Any
 
 from app.interfaces.errors.exceptions import BadRequestException, AppException
-from app.models.supervisor import ProcessInfo
+from app.models.supervisor import ProcessInfo, SupervisorActionResult
 
 logger = logging.getLogger(__name__)
 
@@ -80,3 +80,44 @@ class SupervisorService:
         except Exception as e:
             logger.error(f"获取进程信息失败： {str(e)}")
             raise AppException(f"获取进程信息失败： {str(e)}")
+
+    async def stop_all_processes(self) -> SupervisorActionResult:
+        """停止 supervisor 管理的所有进程"""
+        try:
+            result = await self._call_rpc(self.server.supervisor.stopAllProcesses)
+
+            return SupervisorActionResult(
+                status="stopped",
+                result=result
+            )
+        except Exception as e:
+            logger.error(f"停止 supervisor 所有进程服务失败：{str(e)}")
+            raise AppException(f"停止 supervisor 所有进程服务失败：{str(e)}")
+
+    async def shutdown(self) -> SupervisorActionResult:
+        """关闭 supervisor 服务"""
+        try:
+            shutdown_result = await self._call_rpc(self.server.supervisor.shutdown)
+
+            return SupervisorActionResult(
+                status="shutdown",
+                shutdown_result=shutdown_result
+            )
+        except Exception as e:
+            logger.error(f"关闭 supervisor 服务失败：{str(e)}")
+            raise AppException(f"关闭 supervisor 服务失败：{str(e)}")
+
+    async def restart(self) -> SupervisorActionResult:
+        """重启 supervisor 管理的进程"""
+        try:
+            stop_result = await self._call_rpc(self.server.supervisor.stopAllProcesses)
+            start_result = await self._call_rpc(self.server.supervisor.startAllProcesses)
+
+            return SupervisorActionResult(
+                status="shutdown",
+                stop_result=stop_result,
+                start_result=start_result,
+            )
+        except Exception as e:
+            logger.error(f"重启 supervisor 服务失败：{str(e)}")
+            raise AppException(f"重启 supervisor 服务失败：{str(e)}")

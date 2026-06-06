@@ -8,9 +8,12 @@ import asyncio
 import http.client
 import logging
 import socket
+import threading
 import xmlrpc.client
+from datetime import datetime, timedelta
 from typing import List, Any
 
+from app.core.config import get_settings
 from app.interfaces.errors.exceptions import BadRequestException, AppException
 from app.models.supervisor import ProcessInfo, SupervisorActionResult
 
@@ -49,8 +52,65 @@ class SupervisorService:
 
     def __init__(self) -> None:
         """构造函数，完成 supervisor 服务链接"""
+        # 1. 连接 supervisor 配置
         self.rpc_url = "/tmp/supervisor.sock"
         self._connect_rpc()
+
+        # 2. supervisor 超时配置
+        settings = get_settings()
+        self.timeout_active = settings.server_timeout_minutes is not None
+        self.shutdown_task = None
+        self.shutdown_time = None
+        self._expand_enabled = True  # 是否自动保活（每调用一次接口就增加时间）
+
+        # 3. 检测是否配置了自动销毁
+        if settings.server_timeout_minutes is not None:
+            # 4. 设置销毁时间+定时器
+            self.shutdown_time = datetime.now() + timedelta(minutes=settings.server_timeout_minutes)
+            self._setup_timer(settings.server_timeout_minutes)
+
+    @property
+    def expand_enabled(self) -> bool:
+        """只读属性，返回是否自动保活"""
+        return self._expand_enabled
+
+    def enable_expand(self) -> None:
+        """开启自动保活"""
+        self._expand_enabled = True
+
+    def disable_expand(self) -> None:
+        """关闭自动保活"""
+        self._expand_enabled = False
+
+    def _setup_timer(self, minutes: int) -> None:
+        """传递时间（分钟）并创建定时器，在时间结束之后关闭 supervisord 主进程"""
+        # 1. 检测当前是否存在销毁任务，如果存在则先取消
+        if self.shutdown_task:
+            try:
+                self.shutdown_task.cancel()
+            except Exception as e:
+                logger.warning(f"取消 shutdown 任务失败：{str(e)}")
+
+        # 2. 创建一个异步定时器任务函数
+        async def shutdown_after_timeout():
+            await asyncio.sleep(minutes * 60)
+            await self.shutdown()
+
+        try:
+            # 3. 获取事件循环并添加任务
+            loop = asyncio.get_event_loop()
+            self.shutdown_task = loop.create_task(shutdown_after_timeout())
+        except Exception as _:
+            # 4. 如果事件循环失败，则创建一个新的线程来执行定时器
+            if hasattr(self, "shutdown_timer") and self.shutdown_timer:
+                self.shutdown_timer.cancel()
+            # 5. 使用线程创建关闭定时器并设置在后台运行
+            self.shutdown_timer = threading.Timer(
+                minutes * 60,
+                lambda: asyncio.run(self.shutdown())
+            )
+            self.shutdown_timer.daemon = True
+            self.shutdown_timer.start()
 
     def _connect_rpc(self) -> None:
         """使用 python 的 xml-rpc 客户端连接一个本地 sock 文件实现连接 rpc 服务"""

@@ -9,7 +9,9 @@ import httpx
 from async_lru import alru_cache
 from docker.models.resource import Model
 
+from app.domain.external.browser import Browser
 from app.domain.external.sandbox import Sandbox
+from app.infrastructure.browser.playwright_browser import PlaywrightBrowser
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -45,21 +47,6 @@ class DockerSandbox(Sandbox):
     @property
     def cdp_url(self) -> str:
         return self._cdp_url
-
-    @classmethod
-    async def create(cls) -> Self:
-        """类方法，创建沙箱容器"""
-        # 1. 获取系统配置信息
-        settings = get_settings()
-
-        # 2. 判断是否使用现成的沙箱
-        if settings.sandbox_address:
-            # 3. 将沙箱主机/地址解析成 ip
-            ip = await cls._resolve_hostname_to_ip(settings.sandbox_address)
-            return DockerSandbox(ip=ip)
-
-        # 4. 使用子线程创建一个容器并返回
-        return await asyncio.to_thread(cls._create_task)
 
     @classmethod
     @alru_cache(maxsize=128, typed=True)
@@ -114,7 +101,7 @@ class DockerSandbox(Sandbox):
 
         try:
             # 3. 创建一个 docker 客户端
-            client = docker.from_env()
+            docker_client = docker.from_env()
 
             # 4. 预配置容器信息
             container_config = {
@@ -136,7 +123,7 @@ class DockerSandbox(Sandbox):
                 container_config["network"] = settings.sandbox_network
 
             # 6. 调用 docker 客户端容器运行参数创建沙箱
-            container = client.containers.run(**container_config)
+            container = docker_client.containers.run(**container_config)
 
             # 7. 重载并刷新容器信息
             container.reload()
@@ -146,3 +133,57 @@ class DockerSandbox(Sandbox):
         except Exception as e:
             logger.error(f"创建 Docker 沙箱容器失败：{str(e)}")
             raise Exception(f"创建 Docker 沙箱容器失败：{str(e)}")
+
+    @classmethod
+    async def create(cls) -> Self:
+        """类方法，创建沙箱容器"""
+        # 1. 获取系统配置信息
+        settings = get_settings()
+
+        # 2. 判断是否使用现成的沙箱
+        if settings.sandbox_address:
+            # 3. 将沙箱主机/地址解析成 ip
+            ip = await cls._resolve_hostname_to_ip(settings.sandbox_address)
+            return DockerSandbox(ip=ip)
+
+        # 4. 使用子线程创建一个容器并返回
+        return await asyncio.to_thread(cls._create_task)
+
+    async def destroy(self) -> bool:
+        """销毁当前的 DockerSandbox实例"""
+        try:
+            # 1. 关闭 httpx 客户端
+            if self.client:
+                await self.client.aclose()
+
+            # 2. 关闭并移除容器
+            if self._container_name:
+                docker_client = docker.from_env()
+                docker_client.containers.get(self._container_name).remove(force=True)
+
+            return True
+        except Exception as e:
+            logger.error(f"销毁当前 Docker 沙箱【{self._container_name}】失败：{str(e)}")
+
+    @classmethod
+    @alru_cache(maxsize=128, typed=True)
+    async def get(cls, id: str) -> Self:
+        """根据传递的 id 获取沙箱实例"""
+        # 1. 先获取系统配置并判断是否直连沙箱
+        settings = get_settings()
+        if settings.sandbox_address:
+            ip = await cls._resolve_hostname_to_ip(settings.sandbox_address)
+            return DockerSandbox(ip=ip, container_name=id)
+
+        # 2. 创建 docker 客户端并根据容器名字获取容器
+        docker_client = docker.from_env()
+        container = docker_client.containers.get(id)
+        container.reload()
+
+        # 3. 获取容器的 ip 地址
+        ip = cls._get_container_ip(container)
+        return DockerSandbox(ip=ip, container_name=id)
+
+    async def get_browser(self) -> Browser:
+        """获取沙箱中的浏览器实例"""
+        return PlaywrightBrowser(self._cdp_url)

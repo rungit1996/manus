@@ -19,6 +19,16 @@ docker logs -f sandbox-dev
 
 docker run -d -v /Users/ysz/YS/Code/demo/mas/manus/sandbox:/sandbox -p 8080:8080 -p 5900:5900 -p 5901:5901 -p 9222:9222 --name sandbox-dev sandbox-dev
 
+# 多任务多沙箱下使用 docker
+docker run -d --name sandbox-dev-1 sandbox-dev
+docker run -d --name sandbox-dev-2 sandbox-dev
+# 进入容器内部执行curl
+docker exec -it sandbox-dev-1 curl 127.0.0.1:8080/api/supervisor/status
+
+# docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' sandbox-dev-1
+
+
+
 ```
 
 [//]: # (先装python3-pip)

@@ -11,11 +11,11 @@ import socket
 import threading
 import xmlrpc.client
 from datetime import datetime, timedelta
-from typing import List, Any
+from typing import List, Any, Optional
 
 from app.core.config import get_settings
 from app.interfaces.errors.exceptions import BadRequestException, AppException
-from app.models.supervisor import ProcessInfo, SupervisorActionResult
+from app.models.supervisor import ProcessInfo, SupervisorActionResult, SupervisorTimeout
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,7 @@ class SupervisorService:
         self.timeout_active = settings.server_timeout_minutes is not None
         self.shutdown_task = None
         self.shutdown_time = None
+        self.shutdown_timer = None
         self._expand_enabled = True  # 是否自动保活（每调用一次接口就增加时间）
 
         # 3. 检测是否配置了自动销毁
@@ -181,3 +182,93 @@ class SupervisorService:
         except Exception as e:
             logger.error(f"重启 supervisor 服务失败：{str(e)}")
             raise AppException(f"重启 supervisor 服务失败：{str(e)}")
+
+    async def activate_timeout(self, minutes: Optional[int] = None) -> SupervisorTimeout:
+        """传递指定分钟，并激活定时销毁任务同时关闭自动保活"""
+        # 1.获取超时分钟数
+        setting = get_settings()
+        timeout_minutes = minutes or setting.server_timeout_minutes
+        if timeout_minutes is None:
+            raise BadRequestException("超时时间未配置, 并且未读取到系统默认超时时间")
+
+        # 2.更新超时配置
+        self.timeout_active = True
+        self.shutdown_time = datetime.now() + timedelta(minutes=timeout_minutes)
+
+        # 3.创建一个新的定时器
+        self._setup_timer(timeout_minutes)
+
+        return SupervisorTimeout(
+            status="timeout_activated",
+            active=True,
+            shutdown_time=self.shutdown_time.isoformat(),
+            timeout_minutes=timeout_minutes,
+            remaining_seconds=(self.shutdown_time - datetime.now()).total_seconds(),
+        )
+
+    async def extend_timeout(self, minutes: Optional[int] = 3) -> SupervisorTimeout:
+        """传递指定的时长，延长超时销毁的时间，默认延长3分钟"""
+        # 1.获取超时分钟数
+        if minutes is None:
+            raise BadRequestException("超时时间未配置, 请核实后重试")
+        remaining = self.shutdown_time - datetime.now()
+        timeout_minutes = round(max(0, remaining.total_seconds()) / 60) + minutes
+
+        # 2.更新超时配置
+        self.timeout_active = True
+        self.shutdown_time = datetime.now() + timedelta(minutes=timeout_minutes)
+
+        # 3.创建一个新的定时器
+        self._setup_timer(timeout_minutes)
+
+        return SupervisorTimeout(
+            status="timeout_extended",
+            active=True,
+            shutdown_time=self.shutdown_time.isoformat(),
+            timeout_minutes=timeout_minutes,
+            remaining_seconds=(self.shutdown_time - datetime.now()).total_seconds(),
+        )
+
+    async def cancel_timeout(self) -> SupervisorTimeout:
+        """取消超时销毁设置"""
+        # 1.判断是否设置了超时销毁
+        if not self.timeout_active:
+            return SupervisorTimeout(status="no_timeout_active", activate=False)
+
+        # 2.取消销毁任务
+        if self.shutdown_task:
+            try:
+                self.shutdown_task.cancel()
+                self.shutdown_task = None
+            except Exception as e:
+                logger.warning(f"取消shutdown任务失败: {str(e)}")
+
+        # 3.同步检查是否存在定时器
+        if hasattr(self, 'shutdown_timer') and self.shutdown_timer:
+            self.shutdown_timer.cancel()
+            self.shutdown_timer = None
+
+        # 4.更新超时配置
+        self.timeout_active = False
+        self.shutdown_time = None
+        self._expand_enabled = True
+
+        return SupervisorTimeout(status="timeout_cancelled", active=False)
+
+    async def get_timeout_status(self) -> SupervisorTimeout:
+        """获取当前supervisor的超时状态"""
+        # 1.判断是否开启超时销毁功能
+        if not self.timeout_active:
+            return SupervisorTimeout(active=False)
+
+        # 2.统计剩余秒数
+        remaining_seconds = 0
+        if self.shutdown_time:
+            remaining = self.shutdown_time - datetime.now()
+            remaining_seconds = max(0, remaining.total_seconds())
+
+        return SupervisorTimeout(
+            active=self.timeout_active,
+            shutdown_time=self.shutdown_time.isoformat() if self.shutdown_time else None,
+            remaining_seconds=remaining_seconds
+        )

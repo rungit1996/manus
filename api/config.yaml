@@ -20,7 +20,4 @@ mcp_config:
       url: https://mcp.amap.com/mcp?key=00b05640cc55c0ba2b7f85e0b3f2e6e7
       headers: null
 a2a_config:
-  a2a_servers:
-  - id: 1d20a93e-fb96-41f2-b92c-6bf6bec07c2d
-    base_url: http://localhost:9999
-    enabled: true
+  a2a_servers: []

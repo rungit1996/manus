@@ -181,3 +181,47 @@ class AppConfigService:
             await a2a_client_manager.cleanup()
 
         return a2a_servers
+
+    async def set_a2a_server_enabled(self, a2a_id: str, enabled: bool) -> A2AConfig:
+        """根据传递的id+enabled更新服务启用状态"""
+        # 1. 获取当前的应用配置
+        app_config = await self._load_app_config()
+
+        # 2. 计算需要更新位置的索引并判断是否存在
+        idx = None
+        for item_idx, item in enumerate(app_config.a2a_config.a2a_servers):
+            if item.id == a2a_id:
+                idx = item_idx
+                break
+        if idx is None:
+            raise NotFoundError(f"该 A2A 服务【{a2a_id}】不存在，请核实后重试")
+
+        # 3. 如果存在则更新数据
+        app_config.a2a_config.a2a_servers[idx].enabled = enabled
+
+        # 4. 调用数据仓库更新
+        self.app_config_repository.save(app_config)
+
+        return app_config.a2a_config
+
+    async def delete_a2a_server(self, a2a_id: str) -> A2AConfig:
+        """根据传递的 id 删除指定的 a2a 服务"""
+        # 1. 获取当前的应用配置
+        app_config = await self._load_app_config()
+
+        # 2. 计算需要删除位置的索引并判断是否存在
+        idx = None
+        for item_idx, item in enumerate(app_config.a2a_config.a2a_servers):
+            if item.id == a2a_id:
+                idx = item_idx
+                break
+        if idx is None:
+            raise NotFoundError(f"该 A2A 服务【{a2a_id}】不存在，请核实后重试")
+
+        # 3. 删除 a2a 服务器
+        del app_config.a2a_config.a2a_servers[idx]
+        
+        # 4. 调用数据仓库更新
+        self.app_config_repository.save(app_config)
+
+        return app_config.a2a_config

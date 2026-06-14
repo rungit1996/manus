@@ -171,28 +171,30 @@ async def create_a2a_server(
 
 @router.post(
     path="/a2a-servers/{a2a_id/delete",
-    response_model=Response,
+    response_model=Response[Optional[Dict]],
     summary="删除a2a服务器",
     description="根据 A2A 服务 id 标识删除指定的 A2A 服务",
 )
 async def delete_a2a_server(
         a2a_id: str,
         app_config_service: AppConfigService = Depends(get_app_config_service),
-) -> Response:
+) -> Response[Optional[Dict]]:
     """删除 a2a 服务器"""
-    pass
+    await app_config_service.delete_a2a_server(a2a_id)
+    return Response.success(msg="删除 a2a 服务器成功")
 
 
 @router.post(
     path="/a2a-servers/{a2a_id/enabled",
-    response_model=Response,
+    response_model=Response[Optional[Dict]],
     summary="更新 A2A 服务的启用状态",
     description="启用 or 禁用 A2A 服务的状态",
 )
 async def set_a2a_server_enabled(
         a2a_id: str,
-        enabled: bool = Body(...),
+        enabled: bool = Body(..., embed=True),
         app_config_service: AppConfigService = Depends(get_app_config_service)
-) -> Response:
+) -> Response[Optional[Dict]]:
     """更新 A2A 服务的启用状态"""
-    pass
+    await app_config_service.set_a2a_server_enabled(a2a_id, enabled)
+    return Response.success(msg="更新 a2a 服务器启用状态成功")

@@ -8,6 +8,7 @@ import httpx
 from app.application.errors.exceptions import ServerRequestsError
 from app.domain.models.app_config import A2AConfig
 from app.domain.models.tool_result import ToolResult
+from base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
 
@@ -136,3 +137,65 @@ class A2AClientManager:
             logger.info(f"清除 A2A 客户端管理器成功")
         except Exception as e:
             logger.error(f"清理 A2A 客户端管理器失败：{str(e)}")
+
+
+class A2ATool(BaseTool):
+    """A2A 工具包，根据传递的配置完成 A2A 工具包的初始化"""
+    name: str = "a2a"
+
+    def __init__(self) -> None:
+        """构造函数，完成工具包初始化"""
+        super().__init__()
+        self._initialized: bool = False
+        self.manager: Optional[A2AClientManager] = None
+
+    async def initialize(self, a2a_config: Optional[A2AConfig] = None) -> None:
+        """初始化 A2A 工具包"""
+        # 1. 判断下是否已经初始化
+        if not self._initialized:
+            # 2. 初始化 A2A 客户端管理器
+            self.manager = A2AClientManager(a2a_config)
+            await self.manager.initialize()
+            self._initialized = True
+
+    @tool(
+        name="get_remote_agent_cards",
+        description="获取可远程调用的 Agent 卡片信息，包含 Agent id、名称、描述、技能、请求端点等。",
+        parameters={},
+        required=[]
+    )
+    async def get_remote_agent_cards(self) -> ToolResult:
+        """获取远程 Agent 卡片信息列表"""
+        # 1. 重组结构，将 id 填充到 agent_cards 中
+        agent_cards = []
+        for id, agent_card in self.manager.agent_cards.items():
+            agent_cards.append({
+                "id": id,
+                **agent_cards,
+            })
+
+        # 2. 组装 ToolResult 响应
+        return ToolResult(
+            success=True,
+            message="获取 Agent 卡片信息列表成功",
+            data=agent_cards,
+        )
+
+    @tool(
+        name="call_remote_agent",
+        description="根据传递的id+query(分配给远程Agent完成的任务query)调用远程Agent完成对应需求",
+        parameters={
+            "id": {
+                "type": "string",
+                "description": "需要调用远程 agent 的 id，格式参考 get_remote_agent_cards() 返回的数据结构",
+            },
+            "query": {
+                "type": "string",
+                "description": "需要分配给该远程 Agent 实现的任务/需求 query",
+            }
+        },
+        required=["id", "query"]
+    )
+    async def call_remote_agent(self, id: str, query: str) -> ToolResult:
+        """调用远程 Agent 并完成对应需求"""
+        return await self.manager.invoke(agent_id=id, query=query)

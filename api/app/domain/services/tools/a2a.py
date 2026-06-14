@@ -1,4 +1,13 @@
 import logging
+import uuid
+from contextlib import AsyncExitStack
+from typing import Optional, Dict, Any
+
+import httpx
+
+from app.application.errors.exceptions import ServerRequestsError
+from app.domain.models.app_config import A2AConfig
+from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -20,3 +29,110 @@ A2A 客户端管理器的开发思路：
 7. A2A 客户端管理器只实现两个方法，get_remote_agent_cards and call_remote_agent
 8. A2A 客户端管理器停止时必须清除对应资源，涵盖了缓存，异步上下文管理器避免资源泄露；
 """
+
+
+class A2AClientManager:
+    """A2A 客户端管理器"""
+
+    def __init__(self, a2a_config: Optional[A2AConfig] = None) -> None:
+        """构造函数，完成 A2A 客户端的初始化"""
+        self._a2a_config = a2a_config  # 配置
+        self._exit_stack: AsyncExitStack = AsyncExitStack()  # 上下文管理器
+        self._httpx_client: Optional[httpx.AsyncClient] = None  # httpx 客户端
+        self._agent_cards: Dict[str, Any] = {}  # agent 卡片
+        self._initialized: bool = False  # 是否初始化
+
+    @property
+    def agent_cards(self) -> Dict[str, Any]:
+        """只读属性，返回 agent 卡片信息"""
+        return self._agent_cards
+
+    async def initialize(self) -> None:
+        """异步初始化函数，用于初始化所有已配置的 a2a 服务"""
+        # 1. 检测是否已经初始化
+        if self._initialized:
+            return
+
+        try:
+            # 2. 初始化 httpx 客户端
+            self._httpx_client = await self._exit_stack.enter_async_context(
+                httpx.AsyncClient(timeout=600),
+            )
+
+            # 3. 记录日志并理解所有配置的 a2a 服务获取卡片信息
+            logger.info(f"加载 {len(self._a2a_config.a2a_servers)} 个A2A 服务")
+            await self._get_a2a_agent_cards()
+            self._initialized = True
+            logger.info(f"A2A 客户端加载成功")
+        except Exception as e:
+            logger.error(f"A2A客户端管理器加载失败：{str(e)}")
+            raise ServerRequestsError(f"A2A客户端管理器加载失败：{str(e)}")
+
+    async def _get_a2a_agent_cards(self) -> None:
+        """根据配置连接所有 a2a 服务器获取 AgentCard 信息"""
+        # 1. 循环遍历所有的 a2a 服务
+        for a2a_server_config in self._a2a_config.a2a_servers:
+            try:
+                # 2. 调用 httpx 客户端发起请求
+                agent_card_response = await self._httpx_client.get(
+                    f"{a2a_server_config.base_url}/.well-known/agent-card.json"
+                )
+                agent_card_response.raise_for_status()
+                agent_card = agent_card_response.json()
+
+                # 3. 存储到 agent_cards
+                self._agent_cards[a2a_server_config.id] = agent_card
+            except Exception as e:
+                logger.warning(f"加载 A2A 服务【{a2a_server_config.id}】失败：{str(e)}")
+                continue
+
+    async def invoke(self, agent_id: str, query: str) -> ToolResult:
+        """根据传递的智能体id+query调用Remote-Agent"""
+        # 1. 判断传递的 agent_id 是否存在
+        if agent_id not in self._agent_cards:
+            return ToolResult(success=False, messages="该远程 Agent 不存在")
+
+        # 2. Agent 存在则取出端点信息
+        agent_card = self._agent_cards.get(agent_id, {})
+        url = agent_card.get("url", "")
+
+        # 3. 判断端点是否存在
+        if url == "":
+            return ToolResult(success=False, messages="该远程 Agent 调用端点不存在")
+
+        try:
+            # 4. 使用 httpx 客户端发起 post 请求并传递数据
+            agent_response = await self._httpx_client.post(
+                url,
+                json={
+                    "id": str(uuid.uuid4()),
+                    "jsonrpc": "2.0",
+                    "method": "message/send",
+                    "params": {
+                        "message": {
+                            "messageId": uuid.uuid4().hex,
+                            "role": "user",
+                            "parts": [
+                                {"kind": "text", "text": query}
+                            ]
+                        }
+                    }
+                }
+            )
+            agent_response.raise_for_status()
+            result = agent_response.json()
+
+            return ToolResult(success=True, message="调用远程 Agent 成功", data=result)
+        except Exception as e:
+            logger.error(f"调用远程 Agent【{agent_id}：{url}】出错：{str(e)}")
+            return ToolResult(success=False, messages=f"调用远程 Agent【{agent_id}：{url}】出错：{str(e)}")
+
+    async def cleanup(self) -> None:
+        """当退出 A2A 客户端管理器时，清除对应资源"""
+        try:
+            await self._exit_stack.aclose()
+            self._agent_cards.clear()
+            self._initialized = False
+            logger.info(f"清除 A2A 客户端管理器成功")
+        except Exception as e:
+            logger.error(f"清理 A2A 客户端管理器失败：{str(e)}")

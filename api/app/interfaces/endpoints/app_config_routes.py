@@ -138,3 +138,59 @@ async def set_mcp_server_enabled(
     """根据传递的 server_name + enabled 更新指定服务的启用状态"""
     await app_config_service.set_mcp_server_enabled(server_name, enabled)
     return Response.success(msg="更新 MCP 服务启用状态成功")
+
+
+@router.get(
+    path="/a2a-servers",
+    response_model=Response,
+    summary="获取 a2a 服务器列表",
+    description="获取 Manus 项目中的所有已配置的 a2a 服务器列表",
+)
+async def get_a2a_servers(
+        app_config_service: AppConfigService = Depends(get_app_config_service),
+) -> Response:
+    """获取 a2a 服务列表"""
+    pass
+
+
+@router.post(
+    path="/a2a-servers",
+    response_model=Response,
+    summary="新增 a2a 服务器",
+    description="为 Manus 项目新增 a2a 服务器",
+)
+async def create_a2a_server(
+        base_url: str = Body(...),
+        app_config_service: AppConfigService = Depends(get_app_config_service),
+) -> Response:
+    """新增 a2a 服务器"""
+    pass
+
+
+@router.post(
+    path="/a2a-servers/{a2a_id/delete",
+    response_model=Response,
+    summary="删除a2a服务器",
+    description="根据 A2A 服务 id 标识删除指定的 A2A 服务",
+)
+async def delete_a2a_server(
+        a2a_id: str,
+        app_config_service: AppConfigService = Depends(get_app_config_service),
+) -> Response:
+    """删除 a2a 服务器"""
+    pass
+
+
+@router.post(
+    path="/a2a-servers/{a2a_id/enabled",
+    response_model=Response,
+    summary="更新 A2A 服务的启用状态",
+    description="启用 or 禁用 A2A 服务的状态",
+)
+async def set_a2a_server_enabled(
+        a2a_id: str,
+        enabled: bool = Body(...),
+        app_config_service: AppConfigService = Depends(get_app_config_service)
+) -> Response:
+    """更新 A2A 服务的启用状态"""
+    pass

@@ -19,3 +19,5 @@ mcp_config:
       args: null
       url: https://mcp.amap.com/mcp?key=00b05640cc55c0ba2b7f85e0b3f2e6e7
       headers: null
+  a2a_config:
+    a2a_servers: [ ]

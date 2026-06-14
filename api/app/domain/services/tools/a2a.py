@@ -8,7 +8,7 @@ import httpx
 from app.application.errors.exceptions import ServerRequestsError
 from app.domain.models.app_config import A2AConfig
 from app.domain.models.tool_result import ToolResult
-from base import BaseTool, tool
+from .base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,7 @@ class A2AClientManager:
                 agent_card = agent_card_response.json()
 
                 # 3. 存储到 agent_cards
+                agent_card["enabled"] = a2a_server_config.enabled
                 self._agent_cards[a2a_server_config.id] = agent_card
             except Exception as e:
                 logger.warning(f"加载 A2A 服务【{a2a_server_config.id}】失败：{str(e)}")

@@ -35,12 +35,12 @@ class SessionModel(Base):
         nullable=False,
         server_default=text("0"),
     )  # 未读消息数
-    lastest_message: Mapped[str] = mapped_column(
+    latest_message: Mapped[str] = mapped_column(
         Text,
         nullable=False,
         server_default=text("''::text"),
     )  # 最后一条消息
-    lastest_message_at: Mapped[datetime] = mapped_column(
+    latest_message_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=True,
     )  # 最后一条消息时间

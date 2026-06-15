@@ -8,6 +8,7 @@ from .base import Base
 
 
 # alembic revision --autogenerate -m "create sessions table"
+# alembic upgrade head 
 
 class Demo(Base):
     """Demo 模型，用于演示 alembic 数据库迁移"""

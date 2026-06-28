@@ -46,7 +46,7 @@ class DBSessionRepository(SessionRepository):
         # 2. 将数据循环读取转换成 Domain 模型
         return [record.to_domain() for record in records]
 
-    async def get_by_id(self, session_id: str) -> Optional[str]:
+    async def get_by_id(self, session_id: str) -> Optional[Session]:
         """根据会话 id 获取会话数据"""
         # 1. 构建 sql 查询数据
         stmt = select(SessionModel).where(SessionModel.id == session_id)

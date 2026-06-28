@@ -18,7 +18,7 @@ class SessionRepository(Protocol):
         """获取所有会话列表信息"""
         ...
 
-    async def get_by_id(self, session_id: str) -> Optional[str]:
+    async def get_by_id(self, session_id: str) -> Optional[Session]:
         """根据传递的会话 id 查询会话"""
         ...
 

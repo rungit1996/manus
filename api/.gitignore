@@ -17,3 +17,6 @@ wheels/
 # DS_Store
 .DS_Store
 **/.DS_Store
+
+a2a-study/
+api/alembic/

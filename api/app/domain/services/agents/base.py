@@ -11,6 +11,7 @@ from app.domain.models.event import Event, ToolEvent, ToolEventStatus, ErrorEven
 from app.domain.models.memory import Memory
 from app.domain.models.message import Message
 from app.domain.models.tool_result import ToolResult
+from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.tools.base import BaseTool
 
 logger = logging.getLogger(__name__)
@@ -26,23 +27,26 @@ class BaseAgent(ABC):
 
     def __init__(
             self,
+            session_id: str,  # 会话 id
+            session_repository: SessionRepository,  # 会话数据仓库
             agent_config: AgentConfig,  # Agent 配置
             llm: LLM,  # 语言模型协议
-            memory: Memory,  # 记忆
             json_parser: JSONParser,  # JSON 输出解析器
             tools: List[BaseTool]  # 工具列表
     ) -> None:
         """构造函数，完成 Agent 的初始化"""
+        self._session_id = session_id
+        self._session_repository = session_repository
         self._agent_config = agent_config
         self._llm = llm
-        self._memory = memory
+        self._memory: Optional[Memory] = None
         self._json_parser = json_parser
         self._tools = tools
 
-    @property
-    def memory(self) -> Memory:
-        """只读属性，返回记忆"""
-        return self._memory
+    async def _ensure_memory(self) -> None:
+        """确保智能体记忆存在"""
+        if self._memory is None:
+            self._memory = await self._session_repository.get_memory(self._session_id, self.name)
 
     def _get_available_tools(self) -> List[Dict[str, None]]:
         """获取 Agent 所有可用的工具列表参数说明"""
@@ -91,7 +95,7 @@ class BaseAgent(ABC):
             try:
                 # 4. 调用语言模型获取响应内容
                 message = await self._llm.invoke(
-                    messages=messages,
+                    messages=self._memory.get_messages(),
                     tools=self._get_available_tools(),
                     response_format=response_format,
                     tool_choice=self._tool_choice
@@ -130,23 +134,32 @@ class BaseAgent(ABC):
 
     async def _add_to_memory(self, messages: List[Dict[str, Any]]) -> None:
         """将对应消息添加到记忆中"""
-        # 1. 检查记忆的消息列表是否为空，如果是空则需要添加预设 prompt 作为初始记忆
+        # 1. 先检查确保记忆是存在的
+        await self._ensure_memory()
+
+        # 2. 检查记忆的消息列表是否为空，如果是空则需要添加预设 prompt 作为初始记忆
         if self._memory.empty:
             self._memory.add_message({
                 "role": "system",
                 "content": self._system_prompt
             })
 
-        # 2. 将正常消息添加到记忆中
+        # 3. 将正常消息添加到记忆中
         self._memory.add_messages(messages)
+
+        # 4. 将记忆持久化到数据仓库中
+        await self._session_repository.save_memory(self._session_id, self.name, self._memory)
 
     async def compact_memory(self) -> None:
         """压缩 Agent 的记忆"""
+        await self._ensure_memory()
         self._memory.compact()
+        await self._session_repository.save_memory(self._session_id, self.name, self._memory)
 
     async def roll_back(self, message: Message) -> None:
         """Agent 的状态回滚，用于确保 Agent 的消息列表状态是正确的，包括发送新消息、暂停/停止任务、通知用户"""
         # 1. 取出记忆中的最后一条消息，检查是否是工具调用，也就是 AI 是否刚刚发起了工具调用
+        await self._ensure_memory()
         last_message = self._memory.get_last_message()
         if (
                 not last_message or
@@ -177,6 +190,9 @@ class BaseAgent(ABC):
             # 把刚才的工具调用消息从记忆里删掉，当做没发生！
             # 删除工具整条链路 → 暴力重置，只做异常兜底
             self._memory.roll_back()
+
+        # 6. 将记忆持久化
+        await self._session_repository.save_memory(self._session_id, self.name, self._memory)
 
     async def invoke(self, query: str, fmt: Optional[str] = None) -> AsyncGenerator[Event, None]:
         """传递消息+响应格式调用程序生成异步迭代内容"""
@@ -239,7 +255,7 @@ class BaseAgent(ABC):
                     "role": "tool",
                     "tool_call_id": tool_call_id,
                     "function_name": function_name,
-                    "content": result.model_dump()
+                    "content": result.model_dump_json()
                 })
 
             # 12. 所有工具都执行完成后，调用 LLM 获取汇总消息二次提供

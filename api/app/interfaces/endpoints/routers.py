@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from . import status_routes, app_config_routes
+from . import status_routes, app_config_routes, file_routes
 
 
 def create_api_routes() -> APIRouter:
@@ -11,6 +11,7 @@ def create_api_routes() -> APIRouter:
     # 2. 将各个模块添加到 api_router 中
     api_router.include_router(status_routes.router)
     api_router.include_router(app_config_routes.router)
+    api_router.include_router(file_routes.router)
 
     # 3. 返回 api 路由实例
     return api_router

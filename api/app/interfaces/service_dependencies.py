@@ -5,10 +5,14 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.app_config_service import AppConfigService
+from app.application.services.file_service import FileService
 from app.application.services.status_service import StatusService
 from app.infrastructure.external.health_checker.postgres_health_checker import PostgresHealthChecker
 from app.infrastructure.external.health_checker.redis_health_checker import RedisHealthCheck
+from app.infrastructure.file_storage.cos_file_storage import CosFileStorage
+from app.infrastructure.repositories.db_file_repository import DBFileRepository
 from app.infrastructure.repositories.file_app_config_repository import FileAppConfigRepository
+from app.infrastructure.storage.cos import Cos, get_cos
 from app.infrastructure.storage.postgres import get_db_session
 from app.infrastructure.storage.redis import RedisClient, get_redis
 from core.config import get_settings
@@ -42,3 +46,23 @@ def get_status_service(
     # 2. 创建服务并返回
     logger.info("加载获取 StatusService")
     return StatusService(checkers=[postgres_checker, redis_checker])
+
+
+@lru_cache()
+def get_file_service(
+        cos: Cos = Depends(get_cos),
+        db_session: AsyncSession = Depends(get_db_session),
+) -> FileService:
+    # 1. 初始化文件仓库和文件存储桶
+    file_repository = DBFileRepository(db_session=db_session)
+    file_storage = CosFileStorage(
+        bucket=settings.cos_bucket,
+        cos=cos,
+        file_repository=file_repository
+    )
+
+    # 2. 构建服务并返回
+    return FileService(
+        file_storage=file_storage,
+        file_repository=file_repository,
+    )
